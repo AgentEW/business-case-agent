@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Business Case Agent</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Business Case Agent</h1>
+      <p>Start a discovery session to walk through guided questions one at a time. For each question, type your answer or record it — it will be analyzed automatically before moving on.</p>
+
+      <section class="controls">
+        <button id="startSessionButton">Start Session</button>
+      </section>
+
+      <section class="session" id="sessionSection" hidden>
+        <p class="question-progress" id="questionProgress"></p>
+        <h2 id="questionText"></h2>
+
+        <div class="answer-options">
+          <div class="answer-option">
+            <p class="option-label">Type your answer</p>
+            <textarea id="answerInput" class="answer-input" rows="5" placeholder="Type your answer here..."></textarea>
+            <button id="submitButton">Submit Answer</button>
+          </div>
+
+          <div class="answer-divider">or</div>
+
+          <div class="answer-option">
+            <p class="option-label">Record your answer</p>
+            <button id="recordButton">Start Recording</button>
+            <audio id="playback" controls hidden></audio>
+          </div>
+        </div>
+      </section>
+
+      <section class="status">
+        <p id="statusText">Ready.</p>
+      </section>
+
+      <section class="results">
+        <h2>Recent Records</h2>
+        <ul id="recordsList"></ul>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

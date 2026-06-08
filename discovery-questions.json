@@ -1,0 +1,31 @@
+{
+  "categories": [
+    {
+      "category": "Time & Repetition",
+      "questions": [
+        "What tasks do you do on every project that feel like copy-paste from the last one?",
+        "How much time goes into generating or updating documentation, specs, or submittals?",
+        "What do junior staff spend most of their time on that doesn't require your expertise?"
+      ]
+    },
+    {
+      "category": "Information & Search",
+      "questions": [
+        "When you need a code, standard, or spec detail mid-design — how do you find it? How long does that take?"       
+      ]
+    },
+    {
+      "category": "Coordination & Review",
+      "questions": [      
+        "What's your current review process for drawings or specs — who does it, how long, what gets missed?",
+        "How do RFIs get generated today, and how much back-and-forth does each one take?"
+      ]
+    },
+    {
+      "category": "Closing",
+      "questions": [
+        "If you could have an expert available 24/7 who had read every code, spec, and past project you've ever touched — what would you ask them?"
+      ]
+    }
+  ]
+}
