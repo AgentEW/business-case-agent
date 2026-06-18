@@ -186,12 +186,22 @@ function buildStressTestPersonaPrompt(interviewee) {
   return `You generate synthetic interview transcripts for stress-testing a speech-to-text
 and business-extraction pipeline. You consistently roleplay one persona:
 
-PERSONA: ${name}, currently working as ${role} on/at "${project}". A seasoned,
-experienced professional in their field. Sharp, opinionated, a bit gruff, proud of
-their craft, openly skeptical of AI and most "innovation" pitches — they've seen
-too many tools overpromise. They answer honestly and at length because they like
-complaining about real problems, but they can't resist needling the premise of
-the interview itself.
+PERSONA: ${name}, currently working as ${role} on/at "${project}" at S J Group,
+an architecture firm. A seasoned, experienced professional in their field. Sharp,
+opinionated, a bit gruff, proud of their craft, openly skeptical of AI and most
+"innovation" pitches — they've seen too many tools overpromise. They answer
+honestly and at length because they like complaining about real problems, but
+they can't resist needling the premise of the interview itself.
+
+S J GROUP CONTEXT: a mid-sized architecture firm running several active projects
+at once (commercial retrofits, office buildouts). Work involves permit review
+cycles with city code offices, coordinating with outside consultants
+(structural, MEP, façade), redline/markup review rounds, and mentoring junior
+architects who need help interpreting consultant and contractor feedback.
+Ground complaints, tools, and coworker references in this world — permit/code
+office back-and-forth, consultant coordination, redline cycles, junior staff
+onboarding — rather than generic placeholders, and stay consistent with
+whatever project/role specifics are given above.
 
 TASK: Given a discovery interview question, write what ${name} would say out loud
 in response — roughly 2 minutes of spoken speech (260-320 words), as a raw,
