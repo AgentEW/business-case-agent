@@ -180,19 +180,22 @@ async function extractFromTranscript(transcript, questionContext) {
   return toolUse ? toolUse.input : null;
 }
 
-const STRESS_TEST_PERSONA_PROMPT = `You generate synthetic interview transcripts for stress-testing a speech-to-text
+function buildStressTestPersonaPrompt(interviewee) {
+  const { name, role, project } = interviewee;
+
+  return `You generate synthetic interview transcripts for stress-testing a speech-to-text
 and business-extraction pipeline. You consistently roleplay one persona:
 
-PERSONA: Frank Castellano, 58, a senior/master architect and partner at "SJ Group,"
-a mid-size architecture firm. Three decades in the field. Sharp, opinionated, a bit
-gruff, proud of his craft, openly skeptical of AI and most "innovation" pitches —
-he's seen too many tools overpromise. He answers honestly and at length because he
-likes complaining about real problems, but he can't resist needling the premise of
+PERSONA: ${name}, currently working as ${role} on/at "${project}". A seasoned,
+experienced professional in their field. Sharp, opinionated, a bit gruff, proud of
+their craft, openly skeptical of AI and most "innovation" pitches — they've seen
+too many tools overpromise. They answer honestly and at length because they like
+complaining about real problems, but they can't resist needling the premise of
 the interview itself.
 
-TASK: Given a discovery interview question, write what Frank would say out loud in
-response — roughly 2 minutes of spoken speech (260-320 words), as a raw, unedited
-transcript (not a cleaned-up quote).
+TASK: Given a discovery interview question, write what ${name} would say out loud
+in response — roughly 2 minutes of spoken speech (260-320 words), as a raw,
+unedited transcript (not a cleaned-up quote).
 
 To stress-test the downstream pipeline, work in MOST of the following noise
 patterns, varied each time so no two answers feel templated:
@@ -204,8 +207,9 @@ patterns, varied each time so no two answers feel templated:
 - inconsistent/mixed figures when giving time or cost estimates (e.g. "a day and a
   half" and "12 hours" in the same answer)
 - at least one mid-sentence cutoff or garbled fragment, like a dropped transcription
-- concrete architecture-firm specifics: drawings, specs, RFIs, code research, junior
-  staff, redlines, submittals, invented project names — specific, not generic
+- concrete specifics appropriate to their actual role and project — real tools,
+  processes, terminology, coworker names, invented project details — specific to
+  what someone in their stated role would actually deal with, not generic
 
 Stay grounded enough that the answer is still useful raw material — a real busy
 professional thinking out loud, not pure noise.
@@ -218,44 +222,46 @@ would.
 
 Do not break character, do not add meta-commentary, disclaimers, or formatting in
 the transcript itself.`;
+}
 
 const STRESS_TEST_RESPONSE_SCHEMA = {
   type: 'object',
   properties: {
     transcript: {
       type: 'string',
-      description: "Frank's spoken answer to the discovery question — only the spoken words, nothing else.",
+      description: "The interviewee's spoken answer to the discovery question — only the spoken words, nothing else.",
     },
     updatedSummary: {
       type: 'string',
-      description: 'An updated running summary of what Frank has established across the interview so far (project names, coworker names, recurring numbers/complaints, tone notes), folding in anything new from this answer. Keep it under 100 words. This replaces the previous summary entirely, so it must include everything still relevant, not just what changed.',
+      description: 'An updated running summary of what the interviewee has established across the interview so far (project names, coworker names, recurring numbers/complaints, tone notes), folding in anything new from this answer. Keep it under 100 words. This replaces the previous summary entirely, so it must include everything still relevant, not just what changed.',
     },
   },
   required: ['transcript', 'updatedSummary'],
 };
 
-async function generateStressTestTranscript(question, priorSummary) {
+async function generateStressTestTranscript(question, priorSummary, interviewee) {
+  const persona = interviewee ?? { name: 'Frank', role: 'a senior professional', project: 'their current project' };
   const summaryBlock = priorSummary
-    ? `Running summary of what Frank has already established earlier in this interview:\n"${priorSummary}"\n\n`
+    ? `Running summary of what ${persona.name} has already established earlier in this interview:\n"${priorSummary}"\n\n`
     : '';
 
   const message = await anthropic.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 1024,
     temperature: 1,
-    system: STRESS_TEST_PERSONA_PROMPT,
+    system: buildStressTestPersonaPrompt(persona),
     tools: [
       {
-        name: 'frank_answer',
-        description: "Record Frank's spoken answer and the updated running summary of the interview.",
+        name: 'interviewee_answer',
+        description: "Record the interviewee's spoken answer and the updated running summary of the interview.",
         input_schema: STRESS_TEST_RESPONSE_SCHEMA,
       },
     ],
-    tool_choice: { type: 'tool', name: 'frank_answer' },
+    tool_choice: { type: 'tool', name: 'interviewee_answer' },
     messages: [
       {
         role: 'user',
-        content: `${summaryBlock}Discovery question: "${question.text}" (category: ${question.category})\n\nGenerate Frank's spoken answer now.`,
+        content: `${summaryBlock}Discovery question: "${question.text}" (category: ${question.category})\n\nGenerate ${persona.name}'s spoken answer now.`,
       },
     ],
   });
@@ -702,9 +708,10 @@ app.post('/api/generate-transcript', async (req, res) => {
   }
 
   const session = resolveSession(sessionId);
+  const interviewee = session ? { name: session.name, role: session.role, project: session.project } : null;
 
   try {
-    const { transcript, updatedSummary } = await generateStressTestTranscript(question, session?.testPersonaSummary ?? '');
+    const { transcript, updatedSummary } = await generateStressTestTranscript(question, session?.testPersonaSummary ?? '', interviewee);
     if (session) {
       updateSession(session.id, { testPersonaSummary: updatedSummary });
     }
