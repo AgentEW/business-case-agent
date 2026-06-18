@@ -1,4 +1,29 @@
-const startSessionButton = document.getElementById('startSessionButton');
+const menuSection = document.getElementById('menuSection');
+const menuStartInterviewButton = document.getElementById('menuStartInterviewButton');
+const menuViewExtractButton = document.getElementById('menuViewExtractButton');
+const clearAllButton = document.getElementById('clearAllButton');
+const clearAllDialog = document.getElementById('clearAllDialog');
+const clearAllConfirmInput = document.getElementById('clearAllConfirmInput');
+const clearAllCancelButton = document.getElementById('clearAllCancelButton');
+const clearAllConfirmButton = document.getElementById('clearAllConfirmButton');
+const sessionStatusSection = document.getElementById('sessionStatusSection');
+const sessionStatusList = document.getElementById('sessionStatusList');
+const interviewSection = document.getElementById('interviewSection');
+const backFromInterviewButton = document.getElementById('backFromInterviewButton');
+const dashboardSection = document.getElementById('dashboardSection');
+const backFromDashboardButton = document.getElementById('backFromDashboardButton');
+const dashboardNavButtons = document.querySelectorAll('.dashboard-nav-item');
+const overviewPanel = document.getElementById('overviewPanel');
+const problemsPanel = document.getElementById('problemsPanel');
+const workflowsPanel = document.getElementById('workflowsPanel');
+const capabilitiesPanel = document.getElementById('capabilitiesPanel');
+const recordsPanel = document.getElementById('recordsPanel');
+
+const intakeSection = document.getElementById('intakeSection');
+const intakeName = document.getElementById('intakeName');
+const intakeRole = document.getElementById('intakeRole');
+const intakeProject = document.getElementById('intakeProject');
+const beginSessionButton = document.getElementById('beginSessionButton');
 const sessionSection = document.getElementById('sessionSection');
 const questionProgress = document.getElementById('questionProgress');
 const questionText = document.getElementById('questionText');
@@ -8,6 +33,9 @@ const recordButton = document.getElementById('recordButton');
 const playback = document.getElementById('playback');
 const statusText = document.getElementById('statusText');
 const recordsList = document.getElementById('recordsList');
+const generateTestAnswerButton = document.getElementById('generateTestAnswerButton');
+const skipQuestionButton = document.getElementById('skipQuestionButton');
+const endSessionButton = document.getElementById('endSessionButton');
 
 let mediaRecorder;
 let audioChunks = [];
@@ -15,6 +43,11 @@ let activeStream;
 let questions = [];
 let currentQuestionIndex = -1;
 let submitting = false;
+let sessionId = null;
+let interviewee = null;
+let pendingAudio = null;
+let pendingSource = null;
+let sessionStatusPollTimer = null;
 
 // ── Rendering ──────────────────────────────────────────────────────────────
 
@@ -33,7 +66,7 @@ function renderBusinessCase(businessCase) {
       <dt>Problems</dt><dd>${list(problems ?? [], p => `<li>${p.description} <span class="tag ${p.matched ? '' : 'new'}">${p.matched ? 'linked to existing' : 'new'}</span></li>`)}</dd>
       <dt>Stakeholders</dt><dd>${list(stakeholders ?? [], s => `<li>${s.name} — ${s.role}</li>`)}</dd>
       <dt>Risks</dt><dd>${list(risks ?? [], r => `<li>${r.description} (${r.severity})</li>`)}</dd>
-      <dt>Workflow</dt><dd>${workflowDetected ? 'Described — see data/context.md' : '<span class="empty">Not described</span>'}</dd>
+      <dt>Workflow</dt><dd>${workflowDetected ? 'Described — see the Workflows view' : '<span class="empty">Not described</span>'}</dd>
     </dl>
   `;
 }
@@ -47,6 +80,13 @@ async function fetchRecords() {
     result.records.slice(-20).reverse().forEach(record => {
       const item = document.createElement('li');
 
+      if (record.interviewee) {
+        const intervieweeLabel = document.createElement('p');
+        intervieweeLabel.className = 'record-interviewee';
+        intervieweeLabel.textContent = `${record.interviewee.name} · ${record.interviewee.role} · ${record.interviewee.project}`;
+        item.appendChild(intervieweeLabel);
+      }
+
       if (record.question?.text) {
         const questionLabel = document.createElement('p');
         questionLabel.className = 'record-question';
@@ -56,7 +96,9 @@ async function fetchRecords() {
 
       const summary = document.createElement('div');
       summary.className = 'case-summary';
-      const inputType = record.mimeType === 'text/plain' ? 'typed' : `${record.metadata?.duration?.toFixed(2) ?? 'n/a'}s · ${record.mimeType}`;
+      const inputType = record.source === 'genai-stress-test'
+        ? 'genai stress test'
+        : record.mimeType === 'text/plain' ? 'typed' : `${record.metadata?.duration?.toFixed(2) ?? 'n/a'}s · ${record.mimeType}`;
       summary.textContent = `${new Date(record.createdAt).toLocaleString()} · ${inputType}`;
       item.appendChild(summary);
 
@@ -90,7 +132,48 @@ function updateStatus(message) {
 
 // ── Session control ────────────────────────────────────────────────────────
 
-startSessionButton.addEventListener('click', startSession);
+beginSessionButton.addEventListener('click', beginSession);
+
+async function beginSession() {
+  const name = intakeName.value.trim();
+  const role = intakeRole.value.trim();
+  const project = intakeProject.value.trim();
+
+  if (!name || !role || !project) {
+    updateStatus('Please fill in your name, role, and current project before starting.');
+    return;
+  }
+
+  beginSessionButton.disabled = true;
+  updateStatus('Starting session...');
+
+  try {
+    const response = await fetch('/api/session/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, role, project }),
+    });
+    const result = await response.json();
+
+    if (!result.success) {
+      console.error(result);
+      updateStatus('Could not start session. Check the console for details.');
+      beginSessionButton.disabled = false;
+      return;
+    }
+
+    sessionId = result.session.id;
+    interviewee = { name, role, project };
+  } catch (error) {
+    console.error('Session start error', error);
+    updateStatus('Could not start session due to a network error.');
+    beginSessionButton.disabled = false;
+    return;
+  }
+
+  await startSession();
+  beginSessionButton.disabled = false;
+}
 
 async function startSession() {
   updateStatus('Loading discovery questions...');
@@ -111,7 +194,7 @@ async function startSession() {
   }
 
   currentQuestionIndex = -1;
-  startSessionButton.hidden = true;
+  intakeSection.hidden = true;
   sessionSection.hidden = false;
   showNextQuestion();
 }
@@ -125,6 +208,8 @@ function showNextQuestion() {
   }
 
   submitting = false;
+  pendingAudio = null;
+  pendingSource = null;
   const question = questions[currentQuestionIndex];
   questionProgress.textContent = `Question ${currentQuestionIndex + 1} of ${questions.length} — ${question.category}`;
   questionText.textContent = question.text;
@@ -138,13 +223,38 @@ function showNextQuestion() {
   recordButton.textContent = 'Start Recording';
   playback.hidden = true;
 
+  generateTestAnswerButton.disabled = false;
+  endSessionButton.disabled = false;
+  skipQuestionButton.hidden = currentQuestionIndex === questions.length - 1;
+  skipQuestionButton.disabled = false;
+
   updateStatus('Type your answer and submit, or click "Start Recording" to answer by voice.');
 }
 
-function endSession() {
+async function endSession() {
+  const finishedSessionId = sessionId;
+
+  try {
+    if (finishedSessionId) {
+      // Fire-and-forget from the client's perspective — the server kicks off
+      // extraction in the background and responds immediately. Progress is
+      // tracked via the session status cards on the menu, not by waiting here.
+      await fetch(`/api/session/${finishedSessionId}/finalize`, { method: 'POST' });
+    }
+  } catch (error) {
+    console.error('Finalize error', error);
+  }
+
   sessionSection.hidden = true;
-  startSessionButton.hidden = false;
-  updateStatus('Session complete. All answers have been analyzed.');
+  intakeSection.hidden = false;
+  intakeName.value = '';
+  intakeRole.value = '';
+  intakeProject.value = '';
+  sessionId = null;
+  interviewee = null;
+
+  showView('menu');
+  updateStatus('Session complete. Extraction is running in the background — check the menu for progress.');
 }
 
 function lockInputs(statusMessage) {
@@ -153,6 +263,9 @@ function lockInputs(statusMessage) {
   submitButton.disabled = true;
   submitButton.textContent = 'Analyzing...';
   recordButton.disabled = true;
+  generateTestAnswerButton.disabled = true;
+  skipQuestionButton.disabled = true;
+  endSessionButton.disabled = true;
   updateStatus(statusMessage);
 }
 
@@ -163,6 +276,9 @@ function unlockInputs() {
   submitButton.textContent = 'Submit Answer';
   recordButton.disabled = false;
   recordButton.textContent = 'Start Recording';
+  generateTestAnswerButton.disabled = false;
+  skipQuestionButton.disabled = false;
+  endSessionButton.disabled = false;
 }
 
 // ── Typed answer ───────────────────────────────────────────────────────────
@@ -181,11 +297,13 @@ submitButton.addEventListener('click', async () => {
     const response = await fetch('/api/record/text', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ answer, question: questions[currentQuestionIndex] }),
+      body: JSON.stringify({ answer, question: questions[currentQuestionIndex], sessionId, audio: pendingAudio, source: pendingSource }),
     });
 
     const result = await response.json();
     if (result.success) {
+      pendingAudio = null;
+      pendingSource = null;
       await fetchRecords();
       showNextQuestion();
     } else {
@@ -232,8 +350,8 @@ recordButton.addEventListener('click', async () => {
       playback.src = URL.createObjectURL(blob);
       playback.hidden = false;
 
-      lockInputs('Transcribing and analyzing your answer...');
-      await uploadVoiceAnswer(blob, metadata, questions[currentQuestionIndex]);
+      lockInputs('Transcribing your answer...');
+      await transcribeVoiceAnswer(blob, metadata);
     };
 
     mediaRecorder.start();
@@ -247,30 +365,81 @@ recordButton.addEventListener('click', async () => {
   }
 });
 
-async function uploadVoiceAnswer(blob, metadata, question) {
+async function transcribeVoiceAnswer(blob, metadata) {
   const formData = new FormData();
   formData.append('audio', blob, 'recording.webm');
-  formData.append('metadata', JSON.stringify(metadata));
-  formData.append('question', JSON.stringify({ category: question.category, text: question.text }));
 
   try {
-    const response = await fetch('/api/record', { method: 'POST', body: formData });
+    const response = await fetch('/api/transcribe', { method: 'POST', body: formData });
     const result = await response.json();
 
     if (result.success) {
-      await fetchRecords();
-      showNextQuestion();
+      pendingAudio = {
+        fileName: result.fileName,
+        filePath: result.filePath,
+        mimeType: result.mimeType,
+        sizeBytes: result.sizeBytes,
+        metadata,
+      };
+      answerInput.value = result.transcript;
+      unlockInputs();
+      answerInput.focus();
+      updateStatus('Review the transcript below, edit if needed, then submit.');
     } else {
       console.error(result);
-      updateStatus('Upload failed. Check the console for details.');
+      updateStatus('Transcription failed. Check the console for details.');
       unlockInputs();
     }
   } catch (error) {
-    console.error('Upload error', error);
-    updateStatus('Upload failed due to a network error. Please try again.');
+    console.error('Transcription error', error);
+    updateStatus('Transcription failed due to a network error. Please try again.');
     unlockInputs();
   }
 }
+
+// ── Skip / generate test answer ─────────────────────────────────────────────
+
+skipQuestionButton.addEventListener('click', () => {
+  if (submitting) return;
+  updateStatus('Skipped.');
+  showNextQuestion();
+});
+
+endSessionButton.addEventListener('click', () => {
+  if (submitting) return;
+  endSession();
+});
+
+generateTestAnswerButton.addEventListener('click', async () => {
+  if (submitting) return;
+
+  lockInputs('Generating test answer...');
+
+  try {
+    const response = await fetch('/api/generate-transcript', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: questions[currentQuestionIndex], sessionId }),
+    });
+    const result = await response.json();
+
+    if (result.success) {
+      pendingSource = 'genai-stress-test';
+      answerInput.value = result.transcript;
+      unlockInputs();
+      answerInput.focus();
+      updateStatus('Generated test answer — review, edit if needed, then submit.');
+    } else {
+      console.error(result);
+      updateStatus('Test answer generation failed. Check the console for details.');
+      unlockInputs();
+    }
+  } catch (error) {
+    console.error('Generate test answer error', error);
+    updateStatus('Test answer generation failed due to a network error.');
+    unlockInputs();
+  }
+});
 
 async function getAudioMetadata(blob) {
   try {
@@ -291,4 +460,226 @@ async function getAudioMetadata(blob) {
   }
 }
 
-fetchRecords();
+// ── Menu / view switching ────────────────────────────────────────────────
+
+function showView(view) {
+  menuSection.hidden = view !== 'menu';
+  interviewSection.hidden = view !== 'interview';
+  dashboardSection.hidden = view !== 'dashboard';
+
+  if (view === 'menu') {
+    renderSessionStatusCards();
+  } else if (sessionStatusPollTimer) {
+    clearInterval(sessionStatusPollTimer);
+    sessionStatusPollTimer = null;
+  }
+}
+
+menuStartInterviewButton.addEventListener('click', () => showView('interview'));
+backFromInterviewButton.addEventListener('click', () => showView('menu'));
+
+// ── Session status cards (menu) ─────────────────────────────────────────────
+
+async function renderSessionStatusCards() {
+  let sessions = [];
+  try {
+    const response = await fetch('/api/sessions');
+    sessions = (await response.json()).sessions ?? [];
+  } catch (error) {
+    console.error('Failed to load sessions', error);
+    return;
+  }
+
+  if (!sessions.length) {
+    sessionStatusSection.hidden = true;
+    return;
+  }
+
+  sessionStatusSection.hidden = false;
+  sessionStatusList.innerHTML = sessions.slice(-10).reverse().map(s => {
+    const status = s.extractionStatus ?? 'not_started';
+    const isPending = status === 'pending';
+    const badgeClass = isPending ? 'pending' : 'complete';
+    const badgeText = isPending ? 'Pending' : 'Complete';
+    return `
+      <li class="session-status-card">
+        <div class="session-status-name">${escapeHtml(s.name)} · ${escapeHtml(s.role)}</div>
+        <div class="session-status-meta">${escapeHtml(s.project)} · ${new Date(s.startedAt).toLocaleString()}</div>
+        <span class="session-status-badge ${badgeClass}">${isPending ? '<span class="session-status-spinner"></span>' : ''}${badgeText}</span>
+      </li>
+    `;
+  }).join('');
+
+  const anyPending = sessions.some(s => s.extractionStatus === 'pending');
+  if (anyPending && !sessionStatusPollTimer) {
+    sessionStatusPollTimer = setInterval(renderSessionStatusCards, 4000);
+  } else if (!anyPending && sessionStatusPollTimer) {
+    clearInterval(sessionStatusPollTimer);
+    sessionStatusPollTimer = null;
+  }
+}
+
+// ── Clear all data ───────────────────────────────────────────────────────
+
+clearAllButton.addEventListener('click', () => {
+  clearAllConfirmInput.value = '';
+  clearAllConfirmButton.disabled = true;
+  clearAllDialog.showModal();
+  clearAllConfirmInput.focus();
+});
+
+clearAllConfirmInput.addEventListener('input', () => {
+  clearAllConfirmButton.disabled = clearAllConfirmInput.value !== 'DELETE';
+});
+
+clearAllCancelButton.addEventListener('click', () => clearAllDialog.close());
+
+clearAllConfirmButton.addEventListener('click', async () => {
+  if (clearAllConfirmInput.value !== 'DELETE') return;
+
+  clearAllConfirmButton.disabled = true;
+  clearAllConfirmButton.textContent = 'Clearing...';
+
+  try {
+    await fetch('/api/clear-all', { method: 'POST' });
+  } catch (error) {
+    console.error('Clear all error', error);
+  }
+
+  clearAllConfirmButton.textContent = 'Clear All Data';
+  clearAllDialog.close();
+});
+
+menuViewExtractButton.addEventListener('click', () => {
+  showView('dashboard');
+  loadDashboard();
+});
+backFromDashboardButton.addEventListener('click', () => showView('menu'));
+
+dashboardNavButtons.forEach(button => {
+  button.addEventListener('click', () => {
+    dashboardNavButtons.forEach(b => b.classList.toggle('active', b === button));
+    [overviewPanel, problemsPanel, workflowsPanel, capabilitiesPanel, recordsPanel].forEach(panel => {
+      panel.hidden = panel.id !== `${button.dataset.panel}Panel`;
+    });
+  });
+});
+
+// ── Dashboard data ──────────────────────────────────────────────────────────
+
+const escapeHtml = str => String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+async function loadDashboard() {
+  overviewPanel.innerHTML = '<p class="empty-panel">Loading...</p>';
+
+  let report = { problems: [], desiredCapabilities: [] };
+  let workflows = [];
+  let sessions = [];
+
+  try {
+    [report, workflows, sessions] = await Promise.all([
+      fetch('/api/business-case-report').then(r => r.json()),
+      fetch('/api/workflows').then(r => r.json()).then(r => r.workflows ?? []),
+      fetch('/api/sessions').then(r => r.json()).then(r => r.sessions ?? []),
+      fetchRecords(),
+    ]);
+  } catch (error) {
+    console.error('Failed to load dashboard data', error);
+    overviewPanel.innerHTML = '<p class="empty-panel">Could not load dashboard data.</p>';
+    return;
+  }
+
+  renderOverview(report, workflows, sessions);
+  renderProblems(report.problems);
+  renderWorkflows(workflows);
+  renderCapabilities(report.desiredCapabilities);
+}
+
+function renderOverview(report, workflows, sessions) {
+  const quantified = report.problems.filter(p => p.quantified);
+  const totalAnnualHours = quantified.reduce((sum, p) => sum + p.estimatedAnnualHours, 0);
+  const topProblem = quantified[0];
+
+  overviewPanel.innerHTML = `
+    <h2 class="panel-heading">Overview</h2>
+    <div class="stat-cards">
+      <div class="stat-card"><div class="stat-card-value">${report.problems.length}</div><div class="stat-card-label">Problems tracked</div></div>
+      <div class="stat-card"><div class="stat-card-value">${totalAnnualHours.toFixed(0)}</div><div class="stat-card-label">Quantified hours / year</div></div>
+      <div class="stat-card"><div class="stat-card-value">${sessions.length}</div><div class="stat-card-label">Interviews conducted</div></div>
+      <div class="stat-card"><div class="stat-card-value">${workflows.length}</div><div class="stat-card-label">Workflows captured</div></div>
+    </div>
+    ${topProblem ? `
+      <div class="problem-card">
+        <p class="problem-meta">Biggest opportunity by estimated annual hours</p>
+        <strong>${escapeHtml(topProblem.description)}</strong>
+        <p class="problem-hours"><strong>${topProblem.estimatedAnnualHours.toFixed(0)} hrs/yr</strong></p>
+      </div>
+    ` : '<p class="empty-panel">No quantified problems yet — keep interviewing.</p>'}
+  `;
+}
+
+function renderProblems(problems) {
+  if (!problems.length) {
+    problemsPanel.innerHTML = '<h2 class="panel-heading">Problems</h2><p class="empty-panel">No problems extracted yet.</p>';
+    return;
+  }
+
+  const cards = problems.map((p, index) => `
+    <div class="problem-card">
+      <div class="problem-card-header">
+        <div><span class="problem-rank">#${index + 1}</span>${escapeHtml(p.description)}</div>
+        <div class="problem-hours">${p.quantified ? `<strong>${p.estimatedAnnualHours.toFixed(0)} hrs/yr</strong>` : ''}</div>
+      </div>
+      <p class="problem-meta">
+        ${p.quantified ? '' : '<span class="badge unquantified">not yet quantified</span>'}
+        ${p.confidence.map(c => `<span class="badge ${c}">${c}</span>`).join('')}
+        mentioned ${p.mentionCount} time(s)
+        ${p.currentWorkarounds.length ? `· current workaround: ${escapeHtml(p.currentWorkarounds.join('; '))}` : ''}
+      </p>
+      ${p.supportingQuotes.map(q => `<p class="problem-quote">${escapeHtml(q)}</p>`).join('')}
+    </div>
+  `).join('');
+
+  problemsPanel.innerHTML = `<h2 class="panel-heading">Problems — ranked by estimated annual hours</h2>${cards}`;
+}
+
+function renderWorkflows(workflows) {
+  if (!workflows.length) {
+    workflowsPanel.innerHTML = '<h2 class="panel-heading">Workflows</h2><p class="empty-panel">No workflows captured yet.</p>';
+    return;
+  }
+
+  const cards = workflows.map(w => `
+    <div class="workflow-card">
+      <div class="workflow-card-header">
+        <h3 class="workflow-title">${escapeHtml(w.title)}</h3>
+        <span class="workflow-meta">${w.interviewee ? `${escapeHtml(w.interviewee.name)} · ${escapeHtml(w.interviewee.role)} · ${escapeHtml(w.interviewee.project)} · ` : ''}${new Date(w.recordedAt).toLocaleDateString()}</span>
+      </div>
+      ${w.trigger ? `<p class="workflow-trigger"><strong>Trigger:</strong> ${escapeHtml(w.trigger)}</p>` : ''}
+      ${w.actors?.length ? `<div class="workflow-actors">${w.actors.map(a => `<span class="badge">${escapeHtml(a)}</span>`).join('')}</div>` : ''}
+      ${w.steps?.length ? `<ol class="workflow-steps">${w.steps.map(s => `<li>${escapeHtml(s)}</li>`).join('')}</ol>` : ''}
+      ${w.duration ? `<p class="workflow-duration">Duration: ${escapeHtml(w.duration)}</p>` : ''}
+    </div>
+  `).join('');
+
+  workflowsPanel.innerHTML = `<h2 class="panel-heading">Workflows</h2>${cards}`;
+}
+
+function renderCapabilities(capabilities) {
+  if (!capabilities.length) {
+    capabilitiesPanel.innerHTML = '<h2 class="panel-heading">Desired Capabilities</h2><p class="empty-panel">No desired capabilities captured yet.</p>';
+    return;
+  }
+
+  const cards = capabilities.map(c => `
+    <div class="capability-card">
+      <div>${escapeHtml(c.description)}</div>
+      <p class="problem-meta">${c.interviewee ? `${escapeHtml(c.interviewee.name)} · ${escapeHtml(c.interviewee.role)} · ${escapeHtml(c.interviewee.project)} · ` : ''}${new Date(c.recordedAt).toLocaleDateString()}</p>
+      ${c.directQuote ? `<p class="capability-quote">${escapeHtml(c.directQuote)}</p>` : ''}
+    </div>
+  `).join('');
+
+  capabilitiesPanel.innerHTML = `<h2 class="panel-heading">Desired Capabilities</h2>${cards}`;
+}
+
+renderSessionStatusCards();

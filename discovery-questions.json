@@ -1,31 +1,36 @@
 {
   "categories": [
     {
+      "category": "Opener",
+      "questions": [
+        "Walk me through a typical week for you right now — where does most of your time actually go?"
+      ]
+    },
+    {
       "category": "Time & Repetition",
       "questions": [
-        "What tasks do you do on every project that feel like copy-paste from the last one?",
-        "How much time goes into generating or updating documentation, specs, or submittals?",
-        "What do junior staff spend most of their time on that doesn't require your expertise?"
+        "What's something you find yourself doing over and over across projects — the kind of thing you've done a hundred times before?",
+        "When a new junior person joins, what's the first thing you train them on so it's off your plate?"
       ]
     },
     {
       "category": "Information & Search",
       "questions": [
-        "When you need a code, standard, or spec detail mid-design — how do you find it? How long does that take?"       
+        "Tell me about the last time you needed to track down a code or spec detail mid-design — what did that actually look like?"
       ]
     },
     {
       "category": "Coordination & Review",
-      "questions": [      
-        "What's your current review process for drawings or specs — who does it, how long, what gets missed?",
-        "How do RFIs get generated today, and how much back-and-forth does each one take?"
+      "questions": [
+        "Walk me through what happens when a drawing or spec is ready for review — who touches it, and where does it usually get stuck?",
+        "Think about the last RFI you dealt with — what kicked it off, and how much back-and-forth did it take to close out?"
       ]
     },
     {
       "category": "Closing",
       "questions": [
-        "If you could have an expert available 24/7 who had read every code, spec, and past project you've ever touched — what would you ask them?",
-        "test"
+        "If you had an expert on call 24/7 who'd read every code, spec, and past project you've touched, what's the first thing you'd ask them?",
+        "If you got five hours back a week, what would you actually do with them?"
       ]
     }
   ]

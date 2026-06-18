@@ -9,40 +9,104 @@
   <body>
     <main>
       <h1>Business Case Agent</h1>
-      <p>Start a discovery session to walk through guided questions one at a time. For each question, type your answer or record it — it will be analyzed automatically before moving on.</p>
 
-      <section class="controls">
-        <button id="startSessionButton">Start Session</button>
-      </section>
-
-      <section class="session" id="sessionSection" hidden>
-        <p class="question-progress" id="questionProgress"></p>
-        <h2 id="questionText"></h2>
-
-        <div class="answer-options">
-          <div class="answer-option">
-            <p class="option-label">Type your answer</p>
-            <textarea id="answerInput" class="answer-input" rows="5" placeholder="Type your answer here..."></textarea>
-            <button id="submitButton">Submit Answer</button>
-          </div>
-
-          <div class="answer-divider">or</div>
-
-          <div class="answer-option">
-            <p class="option-label">Record your answer</p>
-            <button id="recordButton">Start Recording</button>
-            <audio id="playback" controls hidden></audio>
-          </div>
+      <section class="menu" id="menuSection">
+        <p>Record discovery interviews and turn them into a business case, or review what's been extracted so far.</p>
+        <div class="menu-options">
+          <button class="menu-card" id="menuStartInterviewButton">
+            <span class="menu-card-title">Start Interview</span>
+            <span class="menu-card-desc">Walk an interviewee through the guided discovery questions.</span>
+          </button>
+          <button class="menu-card" id="menuViewExtractButton">
+            <span class="menu-card-title">View Business Case Extract</span>
+            <span class="menu-card-desc">Browse the problems, workflows, and desired capabilities extracted so far.</span>
+          </button>
         </div>
+        <button class="danger-button" id="clearAllButton">Clear All Data</button>
+
+        <section class="session-status" id="sessionStatusSection" hidden>
+          <h2 class="panel-heading">Sessions</h2>
+          <ul class="session-status-list" id="sessionStatusList"></ul>
+        </section>
       </section>
 
-      <section class="status">
-        <p id="statusText">Ready.</p>
+      <dialog id="clearAllDialog">
+        <h2>Clear All Data</h2>
+        <p>This will permanently wipe all sessions, records, extracted problems, workflows, desired capabilities, and uploaded audio. This cannot be undone.</p>
+        <label>Type <strong>DELETE</strong> to confirm<input id="clearAllConfirmInput" type="text" autocomplete="off" /></label>
+        <div class="dialog-actions">
+          <button class="secondary-button" id="clearAllCancelButton">Cancel</button>
+          <button class="danger-button" id="clearAllConfirmButton" disabled>Clear All Data</button>
+        </div>
+      </dialog>
+
+      <section class="interview" id="interviewSection" hidden>
+        <p class="back-link"><button class="link-button" id="backFromInterviewButton">&larr; Back to menu</button></p>
+        <p>Start a discovery session to walk through guided questions one at a time. For each question, type your answer or record it — it will be analyzed automatically before moving on.</p>
+
+        <section class="intake" id="intakeSection">
+          <h2>Before we start</h2>
+          <div class="intake-fields">
+            <label>Name<input id="intakeName" type="text" placeholder="Jane Doe" /></label>
+            <label>Role<input id="intakeRole" type="text" placeholder="Senior Architect" /></label>
+            <label>Current project<input id="intakeProject" type="text" placeholder="123 Main St Renovation" /></label>
+          </div>
+          <button id="beginSessionButton">Begin Session</button>
+        </section>
+
+        <section class="session" id="sessionSection" hidden>
+          <p class="question-progress" id="questionProgress"></p>
+          <h2 id="questionText"></h2>
+
+          <div class="question-tools">
+            <button class="secondary-button" id="generateTestAnswerButton">Generate Test Answer</button>
+            <button class="secondary-button" id="skipQuestionButton">Skip Question</button>
+            <button class="secondary-button" id="endSessionButton">End Session and Extract</button>
+          </div>
+
+          <div class="answer-options">
+            <div class="answer-option">
+              <p class="option-label">Type your answer</p>
+              <textarea id="answerInput" class="answer-input" rows="5" placeholder="Type your answer here..."></textarea>
+              <button id="submitButton">Submit Answer</button>
+            </div>
+
+            <div class="answer-divider">or</div>
+
+            <div class="answer-option">
+              <p class="option-label">Record your answer</p>
+              <button id="recordButton">Start Recording</button>
+              <audio id="playback" controls hidden></audio>
+            </div>
+          </div>
+        </section>
+
+        <section class="status">
+          <p id="statusText">Ready.</p>
+        </section>
       </section>
 
-      <section class="results">
-        <h2>Recent Records</h2>
-        <ul id="recordsList"></ul>
+      <section class="dashboard" id="dashboardSection" hidden>
+        <nav class="dashboard-sidebar">
+          <p class="dashboard-title">Business Case</p>
+          <button class="dashboard-nav-item active" id="navOverviewButton" data-panel="overview">Overview</button>
+          <button class="dashboard-nav-item" id="navProblemsButton" data-panel="problems">Problems</button>
+          <button class="dashboard-nav-item" id="navWorkflowsButton" data-panel="workflows">Workflows</button>
+          <button class="dashboard-nav-item" id="navCapabilitiesButton" data-panel="capabilities">Desired Capabilities</button>
+          <button class="dashboard-nav-item" id="navRecordsButton" data-panel="records">Records</button>
+          <button class="link-button dashboard-back" id="backFromDashboardButton">&larr; Back to menu</button>
+        </nav>
+
+        <div class="dashboard-content">
+          <section class="dashboard-panel" id="overviewPanel"></section>
+          <section class="dashboard-panel" id="problemsPanel" hidden></section>
+          <section class="dashboard-panel" id="workflowsPanel" hidden></section>
+          <section class="dashboard-panel" id="capabilitiesPanel" hidden></section>
+          <section class="dashboard-panel" id="recordsPanel" hidden>
+            <h2 class="panel-heading">Records</h2>
+            <ul id="recordsList"></ul>
+          </section>
+        </div>
       </section>
     </main>
 
