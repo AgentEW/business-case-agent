@@ -16,6 +16,7 @@
     "openai": "^4.73.0"
   },
   "devDependencies": {
-    "nodemon": "^2.0.22"
+    "nodemon": "^2.0.22",
+    "playwright": "^1.61.0"
   }
 }

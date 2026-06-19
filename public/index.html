@@ -21,6 +21,10 @@
             <span class="menu-card-title">View Business Case Extract</span>
             <span class="menu-card-desc">Browse the problems, workflows, and desired capabilities extracted so far.</span>
           </button>
+          <button class="menu-card" id="menuViewLogsButton">
+            <span class="menu-card-title">View Logs</span>
+            <span class="menu-card-desc">See the raw extraction evaluation log.</span>
+          </button>
         </div>
         <button class="danger-button" id="clearAllButton">Clear All Data</button>
 
@@ -107,6 +111,15 @@
             <ul id="recordsList"></ul>
           </section>
         </div>
+      </section>
+
+      <section class="logs" id="logsSection" hidden>
+        <p class="back-link"><button class="link-button" id="backFromLogsButton">&larr; Back to menu</button></p>
+        <div class="logs-header">
+          <h2 class="panel-heading">Evaluation Logs</h2>
+          <button class="secondary-button" id="refreshLogsButton">Refresh</button>
+        </div>
+        <textarea id="logsTextarea" class="logs-textarea" readonly></textarea>
       </section>
     </main>
 

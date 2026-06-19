@@ -20,15 +20,19 @@ const EXTRACTION_SCHEMA = {
         type: 'object',
         properties: {
           description: { type: 'string' },
-          timeCostHoursLow: { type: 'number', description: 'Low end of the time cost mentioned, in hours (convert days/minutes to hours). 0 if no time figure was mentioned.' },
-          timeCostHoursHigh: { type: 'number', description: 'High end of the time cost mentioned, in hours. Equal to timeCostHoursLow if only a single figure was given. 0 if no time figure was mentioned.' },
+          rootCause: { type: 'string', description: 'The underlying cause of this problem, distinct from the symptom in "description" (e.g. "consultant doesn\'t see redline comments until the weekly sync" rather than "redlines take too long"). "" if not discernible from the transcript.' },
+          impactArea: { type: 'string', enum: ['time', 'cost', 'quality', 'compliance', 'morale'], description: 'The primary way this problem hurts the business.' },
+          severity: { type: 'string', enum: ['low', 'medium', 'high'], description: 'How serious this problem is regardless of frequency — e.g. a rare compliance miss can be "high" even if occurrencesPerYear is low.' },
+          desiredFutureState: { type: 'string', description: 'What the interviewee implied or said would resolve this, in their words. "" if not mentioned.' },
+          timeCostHoursLow: { type: 'number', description: 'Low end of the time cost mentioned, in hours (convert days/minutes to hours). 0 if no concrete time figure was mentioned. A vague self-corrected fraction of an unstated total (e.g. "half my time — actually, a quarter of my time") is NOT a concrete figure — do not multiply it against an assumed work-week length. Leave at 0 in that case.' },
+          timeCostHoursHigh: { type: 'number', description: 'High end of the time cost mentioned, in hours. Equal to timeCostHoursLow if only a single figure was given. 0 if no concrete time figure was mentioned (see timeCostHoursLow for what counts as concrete).' },
           occurrencesPerYear: { type: 'number', description: 'Best-effort estimate of how many times per year this occurs, based on the stated frequency (e.g. "per RFI", "per project phase", "weekly"). 0 if frequency cannot reasonably be estimated from the transcript.' },
           peopleAffectedCount: { type: 'number', description: 'Number of people affected, based on what is mentioned. Default to 1 if only the interviewee is implicated.' },
           currentWorkaround: { type: 'string', description: 'The tool or process they currently use to deal with this, if mentioned. "" if not mentioned.' },
           directQuote: { type: 'string', description: 'The verbatim sentence(s) from the transcript that best evidences this problem.' },
           confidence: { type: 'string', enum: ['stated', 'estimated', 'anecdotal'], description: '"stated" if hard numbers were given, "estimated" if Claude inferred a reasonable estimate, "anecdotal" if only a vague qualitative complaint was made.' },
         },
-        required: ['description', 'timeCostHoursLow', 'timeCostHoursHigh', 'occurrencesPerYear', 'peopleAffectedCount', 'currentWorkaround', 'directQuote', 'confidence'],
+        required: ['description', 'rootCause', 'impactArea', 'severity', 'desiredFutureState', 'timeCostHoursLow', 'timeCostHoursHigh', 'occurrencesPerYear', 'peopleAffectedCount', 'currentWorkaround', 'directQuote', 'confidence'],
       },
     },
     stakeholders: {
@@ -38,8 +42,9 @@ const EXTRACTION_SCHEMA = {
         properties: {
           name: { type: 'string', description: 'The stakeholder\'s name, or "" if not mentioned. Never write "<UNKNOWN>" or similar placeholders.' },
           role: { type: 'string' },
+          relationshipToProblem: { type: 'string', enum: ['affected', 'decision-maker', 'blocker', 'escalation-point', ''], description: 'How this person relates to the problems above — someone who suffers the problem, someone who could approve/fund a fix, someone whose process causes delay for others, or someone the interviewee has to escalate to. "" if unclear.' },
         },
-        required: ['name', 'role'],
+        required: ['name', 'role', 'relationshipToProblem'],
       },
     },
     risks: {
@@ -49,8 +54,10 @@ const EXTRACTION_SCHEMA = {
         properties: {
           description: { type: 'string' },
           severity: { type: 'string', enum: ['low', 'medium', 'high'] },
+          likelihood: { type: 'string', enum: ['low', 'medium', 'high'], description: 'How often or how likely this risk is to materialize, as stated or reasonably inferred.' },
+          linkedProblemDescription: { type: 'string', description: 'The verbatim "description" of the problem (from the problems array above) that this risk stems from, or "" if this risk is not clearly tied to one of them.' },
         },
-        required: ['description', 'severity'],
+        required: ['description', 'severity', 'likelihood', 'linkedProblemDescription'],
       },
     },
     workflow: {
@@ -61,10 +68,23 @@ const EXTRACTION_SCHEMA = {
         title: { type: 'string', description: 'A short name for the workflow (e.g. "RFI Handling Workflow"), or "" if present is false.' },
         trigger: { type: 'string', description: 'What kicks off the workflow, or "" if present is false.' },
         actors: { type: 'array', items: { type: 'string' }, description: 'The roles/people involved in the workflow, in order of involvement.' },
-        steps: { type: 'array', items: { type: 'string' }, description: 'The ordered steps of the workflow, one per array entry.' },
+        steps: {
+          type: 'array',
+          description: 'The ordered steps of the workflow, one object per step.',
+          items: {
+            type: 'object',
+            properties: {
+              step: { type: 'string' },
+              painPoint: { type: 'string', description: 'A specific friction or delay at this step, if mentioned. "" otherwise.' },
+              owner: { type: 'string', description: 'Who is responsible for this step, if mentioned. "" otherwise.' },
+            },
+            required: ['step', 'painPoint', 'owner'],
+          },
+        },
         duration: { type: 'string', description: 'How long the workflow typically takes, as stated, or "" if not mentioned.' },
+        frequency: { type: 'string', description: 'How often this workflow recurs, as stated (e.g. "per project phase", "weekly"). "" if not mentioned.' },
       },
-      required: ['present', 'title', 'trigger', 'actors', 'steps', 'duration'],
+      required: ['present', 'title', 'trigger', 'actors', 'steps', 'duration', 'frequency'],
     },
     desiredCapabilities: {
       type: 'array',
@@ -74,8 +94,10 @@ const EXTRACTION_SCHEMA = {
         properties: {
           description: { type: 'string' },
           directQuote: { type: 'string', description: 'The verbatim sentence(s) this was drawn from.' },
+          linkedProblemDescription: { type: 'string', description: 'The verbatim "description" of the problem (from the problems array above) this capability would resolve, or "" if not clearly tied to one.' },
+          priority: { type: 'string', enum: ['must-have', 'nice-to-have'], description: 'Infer from how strongly the interviewee phrased the ask — an explicit, repeated need vs. a casual "it\'d be nice" aside.' },
         },
-        required: ['description', 'directQuote'],
+        required: ['description', 'directQuote', 'linkedProblemDescription', 'priority'],
       },
     },
   },
@@ -102,6 +124,84 @@ const PROBLEM_MATCH_SCHEMA = {
   },
   required: ['matches'],
 };
+
+const EVALUATION_SCHEMA = {
+  type: 'object',
+  properties: {
+    valid: { type: 'boolean', description: 'true only if there are no "critical" issues below.' },
+    issues: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          field: { type: 'string', description: 'e.g. "problems[0].directQuote", "risks[1].linkedProblemDescription".' },
+          issueType: {
+            type: 'string',
+            enum: ['hallucinated_quote', 'hallucinated_number', 'unsupported_severity', 'broken_link', 'duplicate_entry', 'description_equals_root_cause', 'other'],
+          },
+          explanation: { type: 'string' },
+          severity: { type: 'string', enum: ['critical', 'minor'] },
+        },
+        required: ['field', 'issueType', 'explanation', 'severity'],
+      },
+    },
+    correctionGuidance: {
+      type: 'string',
+      description: 'If "valid" is false, concise, actionable instructions for a second extraction pass on the SAME transcript, written so the extractor avoids repeating these specific critical mistakes (reference field names and what to do differently — e.g. "treat \'a quarter of my time\' as a vague fraction, not a stated hour figure; leave timeCostHoursLow/High at 0"). Do not just restate the issues — say what to do instead. "" if "valid" is true.',
+    },
+  },
+  required: ['valid', 'issues', 'correctionGuidance'],
+};
+
+const EVALUATION_PROMPT = `You are a QA reviewer checking whether a structured extraction accurately reflects
+its source transcript. You are NOT re-extracting — you are auditing what was already
+extracted, looking specifically for fabrication and internal inconsistency.
+
+Check the extraction JSON against the transcript for:
+
+1. QUOTE FIDELITY — every "directQuote" field must be a verbatim or near-verbatim
+   substring of the transcript. Flag any quote that was paraphrased, invented, or
+   stitched together from non-adjacent parts of the transcript as
+   "hallucinated_quote" (critical).
+
+2. NUMBER GROUNDING — every non-zero timeCostHoursLow/High, occurrencesPerYear, and
+   peopleAffectedCount must trace to something stated or directly inferable in the
+   transcript. Flag invented precision (e.g. "12 hours" when the speaker only said
+   "a while") as "hallucinated_number" (critical if it materially changes the
+   estimated annual hours, minor otherwise).
+
+3. SEVERITY/CONFIDENCE CALIBRATION — flag "severity": "high" or "confidence": "stated"
+   that isn't backed by the transcript's actual tone/specificity as
+   "unsupported_severity" (minor).
+
+4. INTERNAL LINKS — every non-empty "linkedProblemDescription" (in risks and
+   desiredCapabilities) must exactly match a "description" string that actually
+   appears in this extraction's own "problems" array. Flag any that don't match
+   anything as "broken_link" (minor).
+
+5. DUPLICATES — flag if two entries within "problems" (or within
+   "desiredCapabilities") describe the same underlying thing rather than being
+   merged into one, as "duplicate_entry" (minor).
+
+6. ROOT CAUSE VS. SYMPTOM — flag any problem where "rootCause" is just a restatement
+   of "description" rather than a distinct underlying cause, as
+   "description_equals_root_cause" (minor). Empty rootCause ("") is fine and should
+   NOT be flagged — only flag when something was filled in but is redundant.
+
+Do not flag anything that is merely under-detailed, vague, or empty ("") — those are
+correct behavior when the transcript itself didn't provide that information. Only
+flag actual fabrication, broken internal references, or duplication.
+
+Set "valid": true only if there are zero "critical" issues. Minor issues do not block
+validity but should still be listed.
+
+If "valid" is false, also write "correctionGuidance": specific, actionable instructions
+for a second extraction attempt on this same transcript, targeted at the critical
+issues only. State what to do differently, not just what was wrong — e.g. instead of
+"the hour figure was invented," write "the speaker only gave a vague self-corrected
+fraction of an unstated total ('half my time — actually a quarter'); do not convert
+that into an hours figure, leave timeCostHoursLow/High at 0 and confidence
+'anecdotal'." Leave "correctionGuidance" as "" when "valid" is true.`;
 
 // Uses a hand-rolled multipart request instead of the openai SDK's fetch-based client,
 // which reliably hit ECONNRESET on this network before a response was ever received.
@@ -152,9 +252,13 @@ function transcribeAudio(audioBuffer, fileName) {
   });
 }
 
-async function extractFromTranscript(transcript, questionContext) {
+async function extractFromTranscript(transcript, questionContext, guidance) {
   const contextLine = questionContext
     ? `This recording is the interviewee's answer to the discovery question: "${questionContext}"\n\n`
+    : '';
+
+  const guidanceBlock = guidance
+    ? `A previous extraction attempt on this same transcript was reviewed and found to have critical issues. Correct these specific mistakes this time — do not repeat them:\n"""\n${guidance}\n"""\n\n`
     : '';
 
   const message = await anthropic.messages.create({
@@ -171,13 +275,38 @@ async function extractFromTranscript(transcript, questionContext) {
     messages: [
       {
         role: 'user',
-        content: `${contextLine}Extract the business details from the following transcript. Use empty strings/arrays/zeros for anything not mentioned — do not guess or invent details. For numeric time/frequency/headcount fields, only fill in a non-zero estimate when it is stated or reasonably inferable from the transcript; mark confidence accordingly.\n\nTranscript:\n"""\n${transcript}\n"""`,
+        content: `${contextLine}${guidanceBlock}Extract the business details from the following transcript. Use empty strings/arrays/zeros for anything not mentioned — do not guess or invent details. For numeric time/frequency/headcount fields, only fill in a non-zero estimate when it is stated or reasonably inferable from the transcript; mark confidence accordingly. A vague self-corrected fraction of an unstated total (e.g. "half my time — actually, a quarter of my time") is not a concrete figure — do not derive an hours estimate from it; leave timeCostHoursLow/High at 0 and mark confidence "anecdotal" instead.\n\nTranscript:\n"""\n${transcript}\n"""`,
       },
     ],
   });
 
   const toolUse = message.content.find(block => block.type === 'tool_use');
   return toolUse ? toolUse.input : null;
+}
+
+async function evaluateExtraction(transcript, extraction) {
+  const message = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 1536,
+    system: EVALUATION_PROMPT,
+    tools: [
+      {
+        name: 'record_evaluation',
+        description: 'Record the QA evaluation of a structured extraction against its source transcript.',
+        input_schema: EVALUATION_SCHEMA,
+      },
+    ],
+    tool_choice: { type: 'tool', name: 'record_evaluation' },
+    messages: [
+      {
+        role: 'user',
+        content: `Transcript:\n"""\n${transcript}\n"""\n\nExtraction to evaluate:\n${JSON.stringify(extraction, null, 2)}`,
+      },
+    ],
+  });
+
+  const toolUse = message.content.find(block => block.type === 'tool_use');
+  return toolUse ? toolUse.input : { valid: true, issues: [], correctionGuidance: '' };
 }
 
 function buildStressTestPersonaPrompt(interviewee) {
@@ -321,6 +450,7 @@ const sessionsPath = path.join(dataDir, 'sessions.json');
 const desiredCapabilitiesPath = path.join(dataDir, 'desired-capabilities.json');
 const reportJsonPath = path.join(dataDir, 'business-case-report.json');
 const reportMdPath = path.join(dataDir, 'business-case-report.md');
+const evaluationLogPath = path.join(dataDir, 'evaluation-log.txt');
 
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
@@ -348,6 +478,21 @@ if (!fs.existsSync(sessionsPath)) {
 
 if (!fs.existsSync(desiredCapabilitiesPath)) {
   fs.writeFileSync(desiredCapabilitiesPath, '[]');
+}
+
+if (!fs.existsSync(evaluationLogPath)) {
+  fs.writeFileSync(evaluationLogPath, '');
+}
+
+function appendEvaluationLog(record, attempt, evaluation) {
+  const header = `[${new Date().toISOString()}] record=${record.id} session=${record.sessionId ?? 'n/a'} attempt=${attempt} valid=${evaluation.valid} issues=${evaluation.issues.length}\n`;
+  const issueLines = evaluation.issues
+    .map(issue => `    - [${issue.severity}] ${issue.field} (${issue.issueType}): ${issue.explanation}\n`)
+    .join('');
+  const guidanceLine = evaluation.correctionGuidance
+    ? `    > guidance for next pass: ${evaluation.correctionGuidance}\n`
+    : '';
+  fs.appendFileSync(evaluationLogPath, header + issueLines + guidanceLine);
 }
 
 function loadQuestions() {
@@ -387,6 +532,10 @@ function buildMention(problem, record) {
     recordedAt: record.createdAt,
     sessionId: record.sessionId,
     interviewee: record.interviewee,
+    rootCause: problem.rootCause ?? '',
+    impactArea: problem.impactArea ?? '',
+    severity: problem.severity ?? 'low',
+    desiredFutureState: problem.desiredFutureState ?? '',
     timeCostHoursLow: problem.timeCostHoursLow ?? 0,
     timeCostHoursHigh: problem.timeCostHoursHigh ?? 0,
     occurrencesPerYear: problem.occurrencesPerYear ?? 0,
@@ -407,7 +556,7 @@ function mergeProblemsIntoMasterList(newProblems, matches, record) {
 
     if (existing) {
       existing.mentions.push(buildMention(problem, record));
-      merged.push({ problemId: existing.id, description: existing.description, matched: true });
+      merged.push({ problemId: existing.id, description: existing.description, rootCause: problem.rootCause ?? '', severity: problem.severity ?? 'low', matched: true });
     } else {
       const entry = {
         id: `problem-${Date.now()}-${index}`,
@@ -415,7 +564,7 @@ function mergeProblemsIntoMasterList(newProblems, matches, record) {
         mentions: [buildMention(problem, record)],
       };
       masterList.push(entry);
-      merged.push({ problemId: entry.id, description: entry.description, matched: false });
+      merged.push({ problemId: entry.id, description: entry.description, rootCause: problem.rootCause ?? '', severity: problem.severity ?? 'low', matched: false });
     }
   });
 
@@ -435,6 +584,8 @@ function appendDesiredCapabilities(capabilities, record) {
       interviewee: record.interviewee,
       description: capability.description,
       directQuote: capability.directQuote,
+      linkedProblemDescription: capability.linkedProblemDescription ?? '',
+      priority: capability.priority ?? 'nice-to-have',
     });
   });
   saveDesiredCapabilities(list);
@@ -461,6 +612,7 @@ function appendWorkflow(workflow, record) {
     actors: workflow.actors,
     steps: workflow.steps,
     duration: workflow.duration,
+    frequency: workflow.frequency ?? '',
   });
   saveWorkflows(workflows);
 }
@@ -486,6 +638,23 @@ async function applyExtractionToRecord(record) {
   } catch (error) {
     console.error('Extraction failed', error);
     return;
+  }
+
+  let evaluation = { valid: true, issues: [], correctionGuidance: '' };
+  try {
+    evaluation = await evaluateExtraction(record.transcript, extraction);
+    appendEvaluationLog(record, 1, evaluation);
+
+    const hasCriticalIssue = evaluation.issues.some(issue => issue.severity === 'critical');
+    if (hasCriticalIssue) {
+      const retryExtraction = await extractFromTranscript(record.transcript, record.question?.text, evaluation.correctionGuidance);
+      const retryEvaluation = await evaluateExtraction(record.transcript, retryExtraction);
+      appendEvaluationLog(record, 2, retryEvaluation);
+      extraction = retryExtraction;
+      evaluation = retryEvaluation;
+    }
+  } catch (error) {
+    console.error('Evaluation failed', error);
   }
 
   let problems = extraction.problems.map(p => ({ problemId: null, description: p.description, matched: false }));
@@ -518,6 +687,7 @@ async function applyExtractionToRecord(record) {
     risks: extraction.risks,
     workflowDetected: Boolean(extraction.workflow?.present),
     desiredCapabilities: extraction.desiredCapabilities ?? [],
+    evaluationIssues: evaluation.issues,
   };
 }
 
@@ -525,6 +695,14 @@ function estimateAnnualHours(mention) {
   const avgHours = (mention.timeCostHoursLow + mention.timeCostHoursHigh) / 2;
   if (!avgHours || !mention.occurrencesPerYear) return 0;
   return avgHours * mention.occurrencesPerYear * (mention.peopleAffectedCount || 1);
+}
+
+const SEVERITY_WEIGHT = { low: 1, medium: 2, high: 3 };
+
+function highestSeverity(mentions) {
+  return mentions.reduce((max, m) => {
+    return (SEVERITY_WEIGHT[m.severity] || 0) > (SEVERITY_WEIGHT[max] || 0) ? m.severity : max;
+  }, 'low');
 }
 
 function computeBusinessCaseReport() {
@@ -536,11 +714,20 @@ function computeBusinessCaseReport() {
     const workarounds = [...new Set(problem.mentions.map(m => m.currentWorkaround).filter(Boolean))];
     const quotes = problem.mentions.map(m => m.directQuote).filter(Boolean);
     const confidences = [...new Set(problem.mentions.map(m => m.confidence).filter(Boolean))];
+    const rootCauses = [...new Set(problem.mentions.map(m => m.rootCause).filter(Boolean))];
+    const desiredFutureStates = [...new Set(problem.mentions.map(m => m.desiredFutureState).filter(Boolean))];
+    const impactAreas = [...new Set(problem.mentions.map(m => m.impactArea).filter(Boolean))];
+    const severity = highestSeverity(problem.mentions);
 
     return {
       id: problem.id,
       description: problem.description,
       estimatedAnnualHours,
+      priorityScore: estimatedAnnualHours * SEVERITY_WEIGHT[severity],
+      severity,
+      rootCauses,
+      desiredFutureStates,
+      impactAreas,
       quantified: quantifiedMentions.length > 0,
       mentionCount: problem.mentions.length,
       currentWorkarounds: workarounds,
@@ -549,7 +736,7 @@ function computeBusinessCaseReport() {
     };
   });
 
-  ranked.sort((a, b) => b.estimatedAnnualHours - a.estimatedAnnualHours);
+  ranked.sort((a, b) => b.priorityScore - a.priorityScore);
 
   const desiredCapabilities = loadDesiredCapabilities();
 
@@ -566,24 +753,30 @@ function computeBusinessCaseReport() {
 
 function renderBusinessCaseReportMarkdown(report) {
   const quantified = report.problems.filter(p => p.quantified);
-  const unquantified = report.problems.filter(p => !p.quantified);
+  const unquantified = [...report.problems.filter(p => !p.quantified)]
+    .sort((a, b) => SEVERITY_WEIGHT[b.severity] - SEVERITY_WEIGHT[a.severity]);
 
-  const lines = [`# Business Case Report`, ``, `_Generated ${report.generatedAt}_`, ``, `## Ranked Problems (by estimated annual hours)`, ``];
+  const lines = [`# Business Case Report`, ``, `_Generated ${report.generatedAt}_`, ``, `## Ranked Problems (by estimated annual hours x severity)`, ``];
 
   quantified.forEach((p, index) => {
     lines.push(`### ${index + 1}. ${p.description}`);
     lines.push(`- **Estimated annual hours:** ${p.estimatedAnnualHours.toFixed(1)}`);
+    lines.push(`- **Severity:** ${p.severity}`);
     lines.push(`- **Mentioned:** ${p.mentionCount} time(s)`);
     lines.push(`- **Confidence:** ${p.confidence.join(', ') || 'n/a'}`);
+    if (p.rootCauses.length) lines.push(`- **Root cause(s):** ${p.rootCauses.join('; ')}`);
+    if (p.impactAreas.length) lines.push(`- **Impact area(s):** ${p.impactAreas.join(', ')}`);
     if (p.currentWorkarounds.length) lines.push(`- **Current workaround(s):** ${p.currentWorkarounds.join('; ')}`);
+    if (p.desiredFutureStates.length) lines.push(`- **Desired future state:** ${p.desiredFutureStates.join('; ')}`);
     if (p.supportingQuotes.length) lines.push(`- **Supporting quotes:**\n${p.supportingQuotes.map(q => `  > ${q}`).join('\n')}`);
     lines.push('');
   });
 
   if (unquantified.length) {
-    lines.push(`## Not Yet Quantified`, '');
+    lines.push(`## Not Yet Quantified (by severity)`, '');
     unquantified.forEach(p => {
-      lines.push(`- ${p.description} (mentioned ${p.mentionCount} time(s))`);
+      lines.push(`- [${p.severity}] ${p.description} (mentioned ${p.mentionCount} time(s))`);
+      if (p.rootCauses.length) lines.push(`  - Root cause(s): ${p.rootCauses.join('; ')}`);
     });
     lines.push('');
   }
@@ -755,6 +948,11 @@ app.get('/api/workflows', (req, res) => {
 
 app.get('/api/sessions', (req, res) => {
   res.json({ sessions: loadSessions() });
+});
+
+app.get('/api/logs', (req, res) => {
+  const contents = fs.readFileSync(evaluationLogPath, 'utf8');
+  res.type('text/plain').send(contents || '(no evaluation logs yet)');
 });
 
 app.post('/api/session/:sessionId/finalize', (req, res) => {

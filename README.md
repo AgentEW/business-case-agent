@@ -45,16 +45,52 @@ http://localhost:3000
 
 ## How it works
 
-1. The landing menu offers two paths: **Start Interview** or **View Business Case Extract**.
+```mermaid
+flowchart TD
+    A["Landing Menu"] -->|Start Interview| B["Intake: name, role, project"]
+    B --> C["Walk through discovery questions"]
+    C -->|type / record / generate test answer| D["Submit Answer"]
+    D -->|"POST /api/record/text"| E[("records.jsonl<br/>businessCase: null")]
+    E --> C
+    C -->|last question answered| F["Finalize Session<br/>POST /api/session/:id/finalize"]
+
+    F --> G["Extract structured business case<br/>(Claude, attempt 1)"]
+    G --> H["Evaluate extraction against transcript<br/>(hallucinated quotes/numbers, broken links, dupes)"]
+    H -->|critical issue found| I["Re-extract with correction guidance<br/>(attempt 2)"]
+    I --> J["Re-evaluate"]
+    H -->|no critical issue| K["Final extraction"]
+    J --> K
+    H -.->|logs| R[("evaluation-log.txt")]
+    J -.->|logs| R
+
+    K --> L["Match problems against master list<br/>(Claude)"]
+    L -->|matched| M["Append mention to existing problem"]
+    L -->|new| N["Add new problem entry"]
+    K --> O["Append workflow, if detected"]
+    K --> P["Append desired capabilities"]
+
+    M --> Q["Recompute business case report<br/>(ranked by hours × severity)"]
+    N --> Q
+    O --> Q
+    P --> Q
+
+    Q --> S["Dashboard: Overview / Problems /<br/>Workflows / Capabilities / Records"]
+    R --> T["View Logs page"]
+    A -->|View Business Case Extract| S
+    A -->|View Logs| T
+```
+
+1. The landing menu offers three paths: **Start Interview**, **View Business Case Extract**, or **View Logs**.
 2. Starting an interview first asks for the interviewee's name, role, and current project (`POST /api/session/start`), which creates a session in `data/sessions.json`. The app then loads the discovery questions from `discovery-questions.json` (via `GET /api/questions`) and walks through them one at a time.
 3. For each question, the interviewee can type an answer, record one, or click "Generate Test Answer" to have Claude roleplay a noisy synthetic answer for stress-testing. Recorded audio is transcribed (`POST /api/transcribe`) and the transcript is placed in the answer box for review/editing before submission — nothing is auto-submitted. "Skip Question" advances without saving anything.
 4. Submitting an answer (`POST /api/record/text`) saves it immediately — transcript, question, technical metadata, and the interviewee's session — with `businessCase` left `null`. No extraction runs at this point, which is what keeps each question fast.
-5. When the last question is answered, the session is finalized: the client calls `POST /api/session/:sessionId/finalize`, which runs extraction for every still-unprocessed record in that session, one batch instead of one call per question. For each: Claude extracts distinct business problems (with time cost, frequency, headcount affected, current workaround, a supporting quote, and a confidence rating), stakeholders, risks, desired capabilities, and a structured workflow (title, trigger, actors, steps, duration) if one was described.
-6. Each extracted problem is matched (via a second Claude call) against the master problem list in `data/problems.json`. Matches get a new timestamped, quantified mention appended to the existing entry; non-matches become new entries.
-7. If a workflow was described, it's appended to `data/workflows.json` as a structured entry.
-8. Once the whole session's records are processed, `data/business-case-report.json`/`.md` is regenerated once: problems ranked by estimated annual hours (time cost × frequency × headcount), with unquantified problems and desired capabilities called out separately.
-9. The transcript, the question it answered, and the extraction results are stored alongside the technical metadata in the record log and shown in the dashboard.
-10. **View Business Case Extract** opens a dashboard (Overview, Problems, Workflows, Desired Capabilities, Records) backed by `GET /api/business-case-report`, `GET /api/workflows`, `GET /api/sessions`, and `GET /api/records`. Nothing extracted is visible during the interview itself — only here.
+5. When the last question is answered, the session is finalized: the client calls `POST /api/session/:sessionId/finalize`, which runs extraction for every still-unprocessed record in that session, one batch instead of one call per question. For each: Claude extracts distinct business problems (with root cause, time cost, frequency, headcount affected, severity, impact area, current workaround, a supporting quote, and a confidence rating), stakeholders, risks, desired capabilities, and a structured workflow if one was described.
+6. A second Claude call evaluates that extraction against the source transcript, flagging fabricated quotes/numbers, unsupported severity, broken internal links, duplicates, and root-cause/description redundancy. If a critical issue is found, the extraction is retried once using the evaluator's own corrective guidance, then re-evaluated. Every evaluation pass — both attempts — is appended to `data/evaluation-log.txt`, viewable in the app's **View Logs** page.
+7. The final extraction's problems are matched (via another Claude call) against the master problem list in `data/problems.json`. Matches get a new timestamped, quantified mention appended to the existing entry; non-matches become new entries.
+8. If a workflow was described, it's appended to `data/workflows.json` as a structured entry; desired capabilities are appended to `data/desired-capabilities.json`.
+9. Once the whole session's records are processed, `data/business-case-report.json`/`.md` is regenerated once: problems ranked by estimated annual hours × severity, with unquantified problems and desired capabilities called out separately.
+10. The transcript, the question it answered, and the extraction results (including any evaluation issues) are stored alongside the technical metadata in the record log and shown in the dashboard.
+11. **View Business Case Extract** opens a dashboard (Overview, Problems, Workflows, Desired Capabilities, Records) backed by `GET /api/business-case-report`, `GET /api/workflows`, `GET /api/sessions`, and `GET /api/records`. Nothing extracted is visible during the interview itself — only here.
 
 If the `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` are missing or a request fails, the record is still saved with `transcript`/`businessCase` set to `null`. A record stays eligible for extraction (`businessCase === null`) until it succeeds, so re-calling finalize for a session retries anything that failed the first time.
 
@@ -72,4 +108,5 @@ If the `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` are missing or a request fails, the 
 - `data/problems.json` - master deduplicated list of business problems, each with its mention history (record id, session, interviewee, and quantification per mention)
 - `data/workflows.json` - structured workflow entries (title, trigger, actors, steps, duration) extracted across recordings
 - `data/desired-capabilities.json` - aspirational asks extracted across recordings
-- `data/business-case-report.json` / `data/business-case-report.md` - regenerated once per session finalize: problems ranked by estimated annual hours, plus desired capabilities
+- `data/business-case-report.json` / `data/business-case-report.md` - regenerated once per session finalize: problems ranked by estimated annual hours × severity, plus desired capabilities
+- `data/evaluation-log.txt` - raw, append-only log of every extraction-evaluation pass (including retries), viewable in the app's View Logs page

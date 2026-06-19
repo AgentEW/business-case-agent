@@ -1,6 +1,11 @@
 const menuSection = document.getElementById('menuSection');
 const menuStartInterviewButton = document.getElementById('menuStartInterviewButton');
 const menuViewExtractButton = document.getElementById('menuViewExtractButton');
+const menuViewLogsButton = document.getElementById('menuViewLogsButton');
+const logsSection = document.getElementById('logsSection');
+const backFromLogsButton = document.getElementById('backFromLogsButton');
+const refreshLogsButton = document.getElementById('refreshLogsButton');
+const logsTextarea = document.getElementById('logsTextarea');
 const clearAllButton = document.getElementById('clearAllButton');
 const clearAllDialog = document.getElementById('clearAllDialog');
 const clearAllConfirmInput = document.getElementById('clearAllConfirmInput');
@@ -56,17 +61,18 @@ function renderBusinessCase(businessCase) {
     return '<p class="case-pending">No business case extracted for this recording.</p>';
   }
 
-  const { problems, stakeholders, risks, workflowDetected } = businessCase;
+  const { problems, stakeholders, risks, workflowDetected, evaluationIssues } = businessCase;
 
   const list = (items, render) =>
     items.length ? `<ul>${items.map(render).join('')}</ul>` : '<p class="empty">None mentioned</p>';
 
   return `
     <dl class="case-fields">
-      <dt>Problems</dt><dd>${list(problems ?? [], p => `<li>${p.description} <span class="tag ${p.matched ? '' : 'new'}">${p.matched ? 'linked to existing' : 'new'}</span></li>`)}</dd>
-      <dt>Stakeholders</dt><dd>${list(stakeholders ?? [], s => `<li>${s.name} — ${s.role}</li>`)}</dd>
-      <dt>Risks</dt><dd>${list(risks ?? [], r => `<li>${r.description} (${r.severity})</li>`)}</dd>
+      <dt>Problems</dt><dd>${list(problems ?? [], p => `<li>${escapeHtml(p.description)} <span class="tag ${p.matched ? '' : 'new'}">${p.matched ? 'linked to existing' : 'new'}</span>${p.severity ? ` <span class="badge ${p.severity}">${escapeHtml(p.severity)}</span>` : ''}${p.rootCause ? ` — root cause: ${escapeHtml(p.rootCause)}` : ''}</li>`)}</dd>
+      <dt>Stakeholders</dt><dd>${list(stakeholders ?? [], s => `<li>${escapeHtml(s.name)} — ${escapeHtml(s.role)}${s.relationshipToProblem ? ` <span class="tag">${escapeHtml(s.relationshipToProblem)}</span>` : ''}</li>`)}</dd>
+      <dt>Risks</dt><dd>${list(risks ?? [], r => `<li>${escapeHtml(r.description)} <span class="badge ${r.severity}">${escapeHtml(r.severity)}</span>${r.likelihood ? ` <span class="badge">${escapeHtml(r.likelihood)} likelihood</span>` : ''}${r.linkedProblemDescription ? ` — linked to: ${escapeHtml(r.linkedProblemDescription)}` : ''}</li>`)}</dd>
       <dt>Workflow</dt><dd>${workflowDetected ? 'Described — see the Workflows view' : '<span class="empty">Not described</span>'}</dd>
+      ${evaluationIssues?.length ? `<dt>Evaluation issues</dt><dd>${list(evaluationIssues, i => `<li><span class="badge ${i.issueType === 'hallucinated_quote' || i.issueType === 'hallucinated_number' ? 'high' : 'low'}">${escapeHtml(i.severity)}</span> ${escapeHtml(i.field)} — ${escapeHtml(i.explanation)}</li>`)}</dd>` : ''}
     </dl>
   `;
 }
@@ -466,6 +472,7 @@ function showView(view) {
   menuSection.hidden = view !== 'menu';
   interviewSection.hidden = view !== 'interview';
   dashboardSection.hidden = view !== 'dashboard';
+  logsSection.hidden = view !== 'logs';
 
   if (view === 'menu') {
     renderSessionStatusCards();
@@ -556,6 +563,25 @@ menuViewExtractButton.addEventListener('click', () => {
 });
 backFromDashboardButton.addEventListener('click', () => showView('menu'));
 
+menuViewLogsButton.addEventListener('click', () => {
+  showView('logs');
+  loadLogs();
+});
+backFromLogsButton.addEventListener('click', () => showView('menu'));
+refreshLogsButton.addEventListener('click', loadLogs);
+
+async function loadLogs() {
+  logsTextarea.value = 'Loading...';
+  try {
+    const response = await fetch('/api/logs');
+    logsTextarea.value = await response.text();
+  } catch (error) {
+    console.error('Failed to load logs', error);
+    logsTextarea.value = 'Could not load logs due to a network error.';
+  }
+  logsTextarea.scrollTop = logsTextarea.scrollHeight;
+}
+
 dashboardNavButtons.forEach(button => {
   button.addEventListener('click', () => {
     dashboardNavButtons.forEach(b => b.classList.toggle('active', b === button));
@@ -631,16 +657,20 @@ function renderProblems(problems) {
         <div class="problem-hours">${p.quantified ? `<strong>${p.estimatedAnnualHours.toFixed(0)} hrs/yr</strong>` : ''}</div>
       </div>
       <p class="problem-meta">
+        <span class="badge ${p.severity}">${escapeHtml(p.severity)}</span>
         ${p.quantified ? '' : '<span class="badge unquantified">not yet quantified</span>'}
         ${p.confidence.map(c => `<span class="badge ${c}">${c}</span>`).join('')}
         mentioned ${p.mentionCount} time(s)
         ${p.currentWorkarounds.length ? `· current workaround: ${escapeHtml(p.currentWorkarounds.join('; '))}` : ''}
       </p>
+      ${p.rootCauses?.length ? `<p class="problem-meta"><strong>Root cause(s):</strong> ${escapeHtml(p.rootCauses.join('; '))}</p>` : ''}
+      ${p.impactAreas?.length ? `<p class="problem-meta"><strong>Impact area(s):</strong> ${escapeHtml(p.impactAreas.join(', '))}</p>` : ''}
+      ${p.desiredFutureStates?.length ? `<p class="problem-meta"><strong>Desired future state:</strong> ${escapeHtml(p.desiredFutureStates.join('; '))}</p>` : ''}
       ${p.supportingQuotes.map(q => `<p class="problem-quote">${escapeHtml(q)}</p>`).join('')}
     </div>
   `).join('');
 
-  problemsPanel.innerHTML = `<h2 class="panel-heading">Problems — ranked by estimated annual hours</h2>${cards}`;
+  problemsPanel.innerHTML = `<h2 class="panel-heading">Problems — ranked by estimated annual hours × severity</h2>${cards}`;
 }
 
 function renderWorkflows(workflows) {
@@ -657,8 +687,15 @@ function renderWorkflows(workflows) {
       </div>
       ${w.trigger ? `<p class="workflow-trigger"><strong>Trigger:</strong> ${escapeHtml(w.trigger)}</p>` : ''}
       ${w.actors?.length ? `<div class="workflow-actors">${w.actors.map(a => `<span class="badge">${escapeHtml(a)}</span>`).join('')}</div>` : ''}
-      ${w.steps?.length ? `<ol class="workflow-steps">${w.steps.map(s => `<li>${escapeHtml(s)}</li>`).join('')}</ol>` : ''}
+      ${w.steps?.length ? `<ol class="workflow-steps">${w.steps.map(s => {
+        const isObject = typeof s === 'object' && s !== null;
+        const stepText = isObject ? s.step : s;
+        const owner = isObject ? s.owner : '';
+        const painPoint = isObject ? s.painPoint : '';
+        return `<li>${escapeHtml(stepText)}${owner ? ` <em>(${escapeHtml(owner)})</em>` : ''}${painPoint ? `<br/><span class="workflow-pain-point">Pain point: ${escapeHtml(painPoint)}</span>` : ''}</li>`;
+      }).join('')}</ol>` : ''}
       ${w.duration ? `<p class="workflow-duration">Duration: ${escapeHtml(w.duration)}</p>` : ''}
+      ${w.frequency ? `<p class="workflow-duration">Frequency: ${escapeHtml(w.frequency)}</p>` : ''}
     </div>
   `).join('');
 
@@ -673,8 +710,9 @@ function renderCapabilities(capabilities) {
 
   const cards = capabilities.map(c => `
     <div class="capability-card">
-      <div>${escapeHtml(c.description)}</div>
+      <div>${escapeHtml(c.description)}${c.priority ? ` <span class="badge ${c.priority === 'must-have' ? 'high' : ''}">${escapeHtml(c.priority)}</span>` : ''}</div>
       <p class="problem-meta">${c.interviewee ? `${escapeHtml(c.interviewee.name)} · ${escapeHtml(c.interviewee.role)} · ${escapeHtml(c.interviewee.project)} · ` : ''}${new Date(c.recordedAt).toLocaleDateString()}</p>
+      ${c.linkedProblemDescription ? `<p class="problem-meta"><strong>Resolves:</strong> ${escapeHtml(c.linkedProblemDescription)}</p>` : ''}
       ${c.directQuote ? `<p class="capability-quote">${escapeHtml(c.directQuote)}</p>` : ''}
     </div>
   `).join('');

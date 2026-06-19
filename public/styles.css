@@ -395,6 +395,26 @@ dialog input:focus {
   color: #d6d3d1;
 }
 
+.badge.low {
+  background: #1e3a8a;
+  color: #bfdbfe;
+}
+
+.badge.medium {
+  background: #78350f;
+  color: #fde68a;
+}
+
+.badge.high {
+  background: #7f1d1d;
+  color: #fecaca;
+}
+
+.badge.critical {
+  background: #7f1d1d;
+  color: #fecaca;
+}
+
 .problem-meta {
   margin: 8px 0;
   font-size: 0.85rem;
@@ -451,6 +471,12 @@ dialog input:focus {
   margin-top: 10px;
   font-size: 0.82rem;
   color: #9ca3af;
+}
+
+.workflow-pain-point {
+  font-size: 0.82rem;
+  color: #fca5a5;
+  font-style: italic;
 }
 
 .empty-panel {
@@ -656,4 +682,27 @@ details summary {
 .tag.new {
   background: #312e81;
   color: #c7d2fe;
+}
+
+.logs-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.logs-textarea {
+  width: 100%;
+  height: 70vh;
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px solid #333;
+  border-radius: 12px;
+  background: #0d0d0d;
+  color: #d1d5db;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 0.82rem;
+  white-space: pre;
+  overflow: auto;
+  box-sizing: border-box;
+  resize: none;
 }
